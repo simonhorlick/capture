@@ -1,5 +1,5 @@
 # __STDC_FORMAT_MACROS is to enable PRIu64 in one of the bitstream headers
-CXXFLAGS += -g -Wall -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
+CXXFLAGS += --std=c++11 -g -Wall -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
 
 all: capture
 

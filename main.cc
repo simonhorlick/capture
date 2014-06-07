@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <queue>
 
 #include <fcntl.h>
 #include <signal.h>
@@ -12,13 +13,61 @@
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/thread/thread.hpp>
 
+#include <boost/circular_buffer.hpp>
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/condition.hpp>
+#include <boost/call_traits.hpp>
+#include <boost/bind.hpp>
+
+#include <mutex>
+#include <condition_variable>
+#include <deque>
+
+struct buffer {
+  uint8_t* buf;
+  int len;
+};
+
+template <typename T>
+class blocking_queue {
+  public:
+
+    void push(T const& value) {
+      {
+        std::unique_lock<std::mutex> lock(mutex_);
+        queue_.push_front(value);
+      }
+      condition_.notify_one();
+    }
+
+    T pop() {
+      std::unique_lock<std::mutex> lock(mutex_);
+      condition_.wait(lock, [=]{ return !queue_.empty(); });
+      T rc(std::move(queue_.back()));
+      queue_.pop_back();
+      return rc;
+    }
+
+    bool empty() {
+      std::unique_lock<std::mutex> lock(mutex_);
+      return queue_.empty();
+    }
+
+  private:
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    std::deque<T> queue_;
+};
+
 // Tunes a dvb device and writes the whole transponder stream to a file.
 class file_writer {
   public:
 
     file_writer(const char* file, int adapter, long frequency)
       : stop_(false),
-        done_(false) {
+        done_(false),
+        consumer_count_(0),
+        producer_count_(0) {
       consumer_thread_ = boost::thread(boost::bind(&file_writer::consume, this, file));
       producer_thread_ = boost::thread(boost::bind(&file_writer::produce, this, adapter, frequency));
     }
@@ -43,11 +92,15 @@ class file_writer {
         throw std::runtime_error("failed to tune");
       }
       while(!stop_) {
-        uint8_t buf[188];
-        int len = source.Read(buf, 188);
-        if(len) {
+        buffer buf;
+        buf.buf = new uint8_t[188];
+        buf.len = source.Read(buf.buf, 188);
+        if(buf.len) {
           // add to queue
-          queue_.push(buf, len);
+          queue_.push(buf);
+          producer_count_ += buf.len;
+        } else {
+          delete buf.buf;
         }
       }
       std::clog << "stopped producer" << std::endl;
@@ -64,15 +117,21 @@ class file_writer {
       }
 
       // read off queue
-      while(!done_) {
-        uint8_t buf[188];
-        int len;
-        while((len = queue_.pop(buf, 188))) {
-          write(output_fd, buf, len);
-        }
+      while(!done_ || !queue_.empty()) {
+        buffer buf = queue_.pop();
+        write(output_fd, buf.buf, buf.len);
+        delete buf.buf;
+        consumer_count_ += buf.len;
       }
 
       close(output_fd);
+    }
+
+    long total_read() const {
+      return producer_count_;
+    }
+    long total_written() const {
+      return consumer_count_;
     }
 
     void join() {
@@ -91,14 +150,27 @@ class file_writer {
     boost::atomic<bool> stop_;
     boost::atomic<bool> done_;
 
-    const static int capacity = 64 * 1024;
-    boost::lockfree::spsc_queue<uint8_t, boost::lockfree::capacity<capacity> > queue_;
+    boost::atomic<long> consumer_count_;
+    boost::atomic<long> producer_count_;
+
+    blocking_queue<buffer> queue_;
 };
 
 sig_atomic_t signaled = 0;
 
 void signal_handler(int sig) { 
   signaled = 1;
+}
+
+void print_stats(const char* label, long read, long write, double s) {
+    double readmb = (read*8) / (1024*1024);
+    double writemb = (write*8) / (1024*1024);
+    std::cout
+      << label
+      << "read " << readmb << " (" << (readmb/s) << "Mb/s) "
+      << "written " << writemb << " (" << (writemb/s) << "Mb/s) "
+      << "difference " << (read-write)/188 << " packets"
+      << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -109,6 +181,9 @@ int main(int argc, char** argv) {
   signal(SIGINT, signal_handler);
 
   // TODO: Parse channels.conf or initial tuning data
+  boost::posix_time::ptime start(boost::posix_time::microsec_clock::local_time());
+
+  // TODO: Optimise read and write sizes
 
   file_writer psb3("psb3.ts", 0, 545800000);
   file_writer com7("com7.ts", 1, 570000000);
@@ -120,6 +195,11 @@ int main(int argc, char** argv) {
       com7.stop();
       break;
     }
+    boost::posix_time::ptime now(boost::posix_time::microsec_clock::local_time());
+    boost::posix_time::time_duration td(now-start);
+    double s = td.total_microseconds() / 1e6;
+    print_stats("psb3", psb3.total_read(), psb3.total_written(), s);
+    print_stats("com7", com7.total_read(), com7.total_written(), s);
     sleep(1);
   }
 

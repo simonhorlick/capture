@@ -37,8 +37,9 @@ LinuxDVBSource::LinuxDVBSource(int adapter, int device) : device_(device) {
     }
 
     // blocking reads will prevent getting the status (on the same thread) if
-    // there is no data coming through.
-    dvr_handle = open(dvr.c_str(), O_RDONLY | O_NONBLOCK);
+    // there is no data coming through. with proper multi-threading you need
+    // blocking to free up cpu.
+    dvr_handle = open(dvr.c_str(), O_RDONLY /*| O_NONBLOCK*/);
     if(dvr_handle < 0) {
         std::cerr << "Could not open dvr device\n";
     }
