@@ -10,28 +10,35 @@
 #include <linux/dvb/dmx.h>
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <iomanip>
 
+std::string get_device(int adapter, int device, const char* type) {
+  std::ostringstream os;
+  os << "/dev/dvb/adapter" << adapter << "/" << type << device;
+  return os.str();
+}
+
 LinuxDVBSource::LinuxDVBSource(int adapter, int device) : device_(device) {
-    const char* frontend = "/dev/dvb/adapter0/frontend0";
-    const char* demux = "/dev/dvb/adapter0/demux0";
-    const char* dvr = "/dev/dvb/adapter0/dvr0";
+    std::string frontend = get_device(adapter,device,"frontend");
+    std::string demux = get_device(adapter,device,"demux");
+    std::string dvr = get_device(adapter,device,"dvr");
 
     // FIXME: Should probably block here and just handle threading sensibly.
-    frontend_handle = open(frontend, O_RDWR | O_NONBLOCK);
+    frontend_handle = open(frontend.c_str(), O_RDWR | O_NONBLOCK);
     if(frontend_handle < 0) {
         std::cerr << "Error opening frontend\n";
     }
 
-    demux_handle = open(demux, O_RDWR | O_NONBLOCK);
+    demux_handle = open(demux.c_str(), O_RDWR | O_NONBLOCK);
     if(demux_handle < 0) {
         std::cerr << "Could not open demux device\n";
     }
 
     // blocking reads will prevent getting the status (on the same thread) if
     // there is no data coming through.
-    dvr_handle = open(dvr, O_RDONLY | O_NONBLOCK);
+    dvr_handle = open(dvr.c_str(), O_RDONLY | O_NONBLOCK);
     if(dvr_handle < 0) {
         std::cerr << "Could not open dvr device\n";
     }

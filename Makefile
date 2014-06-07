@@ -13,5 +13,5 @@ main.o: main.cc linux_dvb_source.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 capture: main.o linux_dvb_source.o
-	$(CXX) $(CXXFLAGS) $^ -o $@
+	$(CXX) $(CXXFLAGS) $^ -lboost_thread -o $@
 
