@@ -20,7 +20,8 @@ int capture(long frequency, int adapter, const char* output) {
         std::cerr << "Failed to set dvb filters\n";
         return 1;
     }
-    int outfd = open(output, O_WRONLY|O_CREAT|O_TRUNC);
+    int outfd = open(output, O_WRONLY|O_CREAT|O_TRUNC,
+        S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP);
     if( outfd < 0 ) {
       std::cerr << "error opening output file" << std::endl;
       return 1;
