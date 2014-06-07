@@ -2,6 +2,7 @@
 
 #include <stdio.h> // for perror
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -28,7 +29,9 @@ LinuxDVBSource::LinuxDVBSource(int adapter, int device) : device_(device) {
         std::cerr << "Could not open demux device\n";
     }
 
-    dvr_handle = open(dvr, O_RDONLY);
+    // blocking reads will prevent getting the status (on the same thread) if
+    // there is no data coming through.
+    dvr_handle = open(dvr, O_RDONLY | O_NONBLOCK);
     if(dvr_handle < 0) {
         std::cerr << "Could not open dvr device\n";
     }
@@ -86,9 +89,20 @@ bool LinuxDVBSource::SetFilters() {
 int LinuxDVBSource::Read(uint8_t* buffer, int size) {
     int bytes = read(dvr_handle, buffer, size);
     if(bytes < 0) {
-        std::cerr << "Error reading from dvr device\n";
-        if(errno == EOVERFLOW) return 0;
-        return -1;
+      // If the buffer is not large enough, or if the read operations are not
+      // performed fast enough, this may result in a buffer overflow error. In
+      // this case EOVERFLOW will be returned, and the circular buffer will be
+      // emptied. 
+        if(errno == EOVERFLOW) {
+          std::cout << "\nKernel buffer overflowed, we're too slow.\n";
+        } else if( errno == EWOULDBLOCK ) {
+          // no data to return
+        } else if( errno == ETIMEDOUT ) {
+          std::cout << "\nThe section was not loaded within the stated timeout period.\n";
+        } else {
+          std::cout << "\nUnknown error: " << errno << "\n";
+        }
+        return 0;
     }
 
     return bytes;

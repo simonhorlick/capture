@@ -19,11 +19,12 @@ public:
 
     void PrintStatistics();
 
+    fe_status_t GetStatus();
+
 private:
     int device_;
 
     void GetInfo();
-    fe_status_t GetStatus();
 
     dvb_frontend_info info_;
 

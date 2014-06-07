@@ -33,11 +33,16 @@ int main(int argc, char** argv) {
     std::clog << "Reading from device\n";
     size_t total_read = 0;
     while(true) {
+        fe_status_t status = source.GetStatus();
+        if(!(status & FE_HAS_LOCK)) {
+          std::cout << "\rLost lock";
+          continue;
+        }
         const int bufsize = 256*188;
         uint8_t buf[bufsize];
         int len = source.Read( buf, bufsize );
         total_read += len;
-        std::cout << "\rread " << (total_read / (1024*1024)) << "MB";
+        std::cout << "\rRead " << (total_read / (1024*1024)) << "MB";
         // TODO: Parse packet headers for non-recoverable errors.
         // TODO: Print current pids and how much data has been received for
         // each.
